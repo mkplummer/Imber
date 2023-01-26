@@ -18,7 +18,7 @@ aperture_diameter = 24.5 # Diameter [m]
 collecting_area = 368 # [m^2]
 
 'Sky Emission and Transmission Files'
-sky_file = '/Users/plummer.323/Imber/SkyFiles/skytable-GCLEF-pwv3.7-T283.fits' #Use the SkyTable from ESO for Transmission & Sky Background
+sky_file = '/Users/plummer.323/Imber/SkyModels/skytable-GCLEF-pwv3.7-T283.fits' #Use the SkyTable from ESO for Transmission & Sky Background
 file_type = 'FITS'
 
 'Instrument Parameters'
@@ -35,7 +35,7 @@ GCLEF = Imber.Spectroscopic_Instrument(aperture_diameter,collecting_area,\
                                               efficiency,Nspec,lambda_ref,dark_current,
                                               readout_noise)
 
-
+    
 '''
 -------------------------------------------------------------
 TMT-MODHIS
@@ -46,8 +46,8 @@ aperture_diameter = 30 # [m]
 collecting_area = 651 # [m^2]
 
 'Sky Emission and Transmission Files'
-sky_file = '/Users/plummer.323/Imber/SkyFiles/MKO_sky_emiss_NIR_1mm_1.5.csv'
-transmission_file = '/Users/plummer.323/Imber/BTSettl/SkyFiles/MKO_atm_trans_NIR_1.0mm_1.5.csv'
+sky_file = '/Users/plummer.323/Imber/SkyModels/MKO_sky_emiss_NIR_1mm_1.5.csv'
+transmission_file = '/Users/plummer.323/Imber/SkyModels/MKO_atm_trans_NIR_1.0mm_1.5.csv'
 file_type = 'CSV'
 
 'Instrument Parameters'
@@ -76,7 +76,7 @@ aperture_diameter = 39 # Diameter [m]
 collecting_area = 1100 # [m^2]
 
 'Sky Emission and Transmission Files'
-sky_file = '/Users/plummer.323/Imber/SkyFiles/skytable-ELT-L.fits' #Uses the SkyTable from ESO for Transmission & Sky Background
+sky_file = '/Users/plummer.323/Imber/SkyModels/skytable-ELT-L.fits' #Uses the SkyTable from ESO for Transmission & Sky Background
 file_type = 'FITS'
 
 'Instrument Parameters'
@@ -105,7 +105,7 @@ aperture_diameter = 39 # [m]
 collecting_area = 1100 # [m^2]
 
 'Sky Emission and Transmission Files'
-sky_file = '/Users/plummer.323/Imber/SkyFiles/MKO_sky_emiss_NIR_1mm_1.5.csv'
+sky_file = '/Users/plummer.323/Imber/SkyModels/MKO_sky_emiss_NIR_1mm_1.5.csv'
 file_type = 'FITS'
 airmass = 1.5
 
