@@ -7,4 +7,5 @@ Doppler imaging tool created by [Michael K. Plummer](https://www.michaelplummer.
 
 ## Dependencies
 
-Numpy, SciPy, AstroPy, SpecUtils, Dynesty, Matplotlib, Pandas, TQDM
+AstroPy, Dynesty, Matplotlib, Numpy, Pandas, SciPy, SecretColors, SpecUtils, TQDM
+
