@@ -77,477 +77,6 @@ class Target:
         self.host_magnitude = host_magnitude
 
 
-class Analytical_Model:
-    '''
-    Object class used to generate analytical line profiles and light curves.
-    
-        Inputs:
-            length_of_observation: Total time for observations [hrs]
-            time_steps: # of times steps for 1 revolution of target
-            n: # of pixels in line profile
-            eps: Linear limb darkening coefficient
-            target: Target-class object
-    '''
-    
-    def __init__(self,target,length_of_observation,time_steps,n,eps,spectral_resolution,time_stamps = 0):
-        self.length_of_observation = length_of_observation
-        self.n = n
-        self.eps = eps
-        self.spectral_resolution = spectral_resolution
-        self.target = target
-        self.rv_array = np.linspace(-2*self.target.vsini,2*self.target.vsini,n)
-        'Assign Target Data to Model'
-        " Zrb is the rotational broadening kernel used for analtical model."
-        Zrb = rotationalbroadening(self.rv_array, self.target.vsini, self.target.vstar, self.eps)
-        self.Zrb = Zrb/sum(Zrb) #Normalize the rotational broadening kernel
-        self.time_steps = time_steps
-        self.time_hours = np.linspace(0,length_of_observation,time_steps)
-        
-    def rotational_broadening_kernel(self):
-        ''' The rotational broadening kernel has either bright or dark Gaussian spots
-        either added or subtracted (respectively).'''
-        LPrb = np.copy(self.Zrb)
-        for i in range(len(self.target.lat)):
-            LPrb = LPrb + self.spots_generator(self.target.lat[i],self.target.lon[i],self.target.radius[i],self.target.contrast[i],i)
-        self.LPrb = LPrb
-        
-    def instrument_broadening_kernel(self):
-        " This function creates an instrument profile alone."
-        c = 2.9979E5 #[km/s]
-        sig = c/self.spectral_resolution/2
-        " The instrument profile is a Gaussian distribution with std dev = c/R."
-        LPinstrument = np.exp(-0.5 * np.power(self.rv_array/sig, 2.)) / (np.sqrt(2*np.pi)*sig)
-        " Normalize the instrument profile."
-        LPinstrument = LPinstrument/sum(LPinstrument)
-        self.LPinstrument = LPinstrument
-    
-    def rotational_plus_instrument_kernel(self):
-        ''' Here we convolve an instrument profile with the rotational broadening
-        kernel to create our analytical line profile which can then be modified
-        by either bright (additive) or dark (subtractive) Gaussian spots.'''
-        LPrb = np.copy(self.Zrb)
-        " The std dev is c/R"
-        sig = c/self.spectral_resolution/2
-        " Here we can create an instrument broadening kernel using a Gaussian distribution."
-        LPinstrument = np.exp(-0.5 * np.power(self.rv_array/sig, 2.)) / (np.sqrt(2*np.pi)*sig)
-        LPinstrument = LPinstrument/sum(LPinstrument) 
-        ''' The instrument and rotational broadening kernels are convolved. This new line
-        profile is used for generating the line profiles with Gaussian spots.'''
-        Za = np.convolve(LPrb,LPinstrument,'same')
-        self.LPrb_plus_instrument = Za/sum(Za) # Analytical line profile is normalized 
-    
-        
-    def create_line_profile(self):
-        ''' This function creates a convolved instrument & rotationally broadened
-        line profile and then adds Gaussian spots via spots_generator.
-        
-        The instrument input here needs to be an Instrument class.'''
-        
-        c = 2.9979E5 #[km/s]
-        " Import rotationally broadened kernel."
-        LPrb = np.copy(self.Zrb)
-        " Create Gaussian instrument line profile with std dev = c/R"
-        sig = c/self.spectral_resolution/2
-        LPinstrument = np.exp(-0.5 * np.power(self.rv_array/sig, 2.)) / (np.sqrt(2*np.pi)*sig)
-        LPinstrument = LPinstrument/sum(LPinstrument)
-        self.LPinstrument = LPinstrument
-        " Convolve rotationally broadened & instrument kernel and normalize."
-        Za = np.convolve(LPrb,LPinstrument,'same')
-        Z = Za/sum(Za)
-        " Add Gaussian Spots"
-        for i in range(len(self.target.lat)):
-            Z = Z + self.spots_generator(self.target.lat[i],self.target.lon[i],self.target.radius[i],self.target.contrast[i],i)
-        self.line_profile = Z
-        
-    def create_lightcurve(self):
-        self.create_line_profile()
-        self.light_curve = np.sum(self.line_profile,axis = 1)
-    
-    def spots_generator(self,lat,lon,radius,contrast,spot_number):
-        ''' This function accepts a single spot (with lat,lon,radius,contrast) and
-        creates a line profile (in RV space) which can be added (bright spot)
-        or subtracted (dark spot) to create the full analytical model.'''
-        
-        degrees_of_observation = (self.length_of_observation/self.target.period)*360
-        if degrees_of_observation <= 360:
-            lon_array = np.linspace(lon,lon+degrees_of_observation,self.time_steps)
-            ''' rotation_inclination uses the Euler-Rodrigues formula to perform a coordinate
-            transformation which takes into account a target's inclination vs. the observer.'''
-            latspot,lonspot = rotation_inclination(lat,lon_array,self.target.inclination)
-            " a & b are the longitudinal and latitudinal (respectively) spot radii corrected"
-            " for the Lambertian cosine law (the grow smaller as they approach the target's"
-            " limbs.)"
-            a = radius*np.ones(self.time_steps)*np.abs(np.cos(np.radians(lonspot)))
-            b = radius*np.ones(self.time_steps)*np.abs(np.cos(np.radians(latspot)))
-            " Convert from degree to RV space."
-            va,vb = a*self.target.vsini/90,b*self.target.vsini/90
-            # va = self.vsini*np.sin(np.radians(radius))*np.cos(np.radians(lonspot))
-            " Spot area as an ellipse on the stellar disk"
-            spot_area = (a*b)/(90**2)
-            ''' Intensity computes the spot's magnitude based on area, contrast, & a factor
-            to account for the line profile being a 1D represenation of a 2D phenomenon.'''
-            intensity = 2.2807*spot_area*contrast #Value may be np.sqrt(5*np.pi/3) instead of 2.2807
-            ''' Viewing accounts for whether or not a spot is visible at each time_stepsstep.
-            In many instances (& inclinations), the spot will be on the non-viewable
-            hemisphere.'''
-            view = viewing(lat,latspot,lonspot,self.time_steps,self.target.inclination)
-            ''' We use matrix methods to create the Gaussian distribution for the spots
-            for each timestep in RV space.'''
-            rv_temp = np.tile(lonspot*self.target.vsini/90,self.n).reshape(self.n,self.time_steps).T
-            # rv_temp = np.tile(self.vsini*np.sin(np.radians(lonspot)),self.n).reshape(self.n,self.time_steps).T
-            rv_halfwidth = np.tile(va,self.n).reshape(self.n,self.time_steps).T
-            rvsub = (self.rv_array-rv_temp)/rv_halfwidth
-            Z = np.exp(-0.5*rvsub*rvsub).T#/(2*np.pi*va)#/np.sqrt(np.pi)
-            ''' We ensure the star spot has been normalized prior to being multipled
-            by its intensity.'''
-            sumZ = np.sum(Z,axis=0)
-            sumZ = np.where(sumZ<1,1,sumZ)
-            Z = Z/sumZ
-            " The final spot line profile is computed."
-            Zspot = -(Z*intensity*view).T
-            return(Zspot) 
-        else:
-            time_samples = int(self.time_steps*360/degrees_of_observation)
-            if self.target.prior_rotation == True:
-                Zspot = np.zeros((self.time_steps+time_samples,self.n))
-                ' 1 additional rotation to round up and another to account for prior rotation'
-                number_of_rotations = int(degrees_of_observation/360)+2
-            else:
-                Zspot = np.zeros((self.time_steps,self.n))
-                if degrees_of_observation%360 == 0:
-                    number_of_rotations = int(degrees_of_observation/360)
-                else:
-                    number_of_rotations = int(degrees_of_observation/360)+1
-            current_rotation = 0
-            sample_start = 0
-            longitude = lon
-            for i in range(number_of_rotations):
-                if current_rotation+1 < number_of_rotations:
-                    observational_phase = 360
-                else:
-                    observational_phase = np.mod(degrees_of_observation,360*(number_of_rotations-1))
-                    if observational_phase != 360.0:
-                        if observational_phase != 0.0:
-                            time_samples = np.mod(self.time_steps,time_samples)
-                    if observational_phase == 0.0:
-                        observational_phase = 360.0
-                        
-                if isinstance(longitude,np.ndarray) == True:
-                    dlongitude = longitude[-1]-longitude[-2]
-                    longitude = longitude[-1]+dlongitude
-                if isinstance(radius,np.ndarray) == True:
-                    radius = radius[-1]
-                if isinstance(contrast,np.ndarray) == True:
-                    contrast = contrast[-1]
-
-                if self.target.spot_evolution_boolean == True:
-                    index = np.where((np.array(self.target.spot_evolution_rotation)==current_rotation+1) & \
-                                     (np.array(self.target.spot_evolution_number) == spot_number))[0]
-                    for i in range(len(index)):
-                        radius = np.linspace(radius,self.target.spot_evolution_radius[index[i]],time_samples)
-                        contrast = np.linspace(contrast,self.target.spot_evolution_contrast[index[i]],time_samples)
-
-                longitude = np.linspace(longitude,longitude+observational_phase,time_samples)
-                ''' rotation_inclination uses the Euler-Rodrigues formula to perform a coordinate
-                transformation which takes into account a target's inclination vs. the observer.'''
-                latspot,lonspot = rotation_inclination(lat,longitude,self.target.inclination)
-                " a & b are the longitudinal and latitudinal (respectively) spot radii corrected"
-                " for the Lambertian cosine law (the grow smaller as they approach the target's"
-                " limbs.)"
-                a = radius*np.abs(np.cos(np.radians(lonspot)))
-                b = radius*np.abs(np.cos(np.radians(latspot)))
-                " Convert from degree to RV space."
-                va,vb = a*self.target.vsini/90,b*self.target.vsini/90
-                " Spot area as an ellipse on the stellar disk"
-                spot_area = (a*b)/(90**2)
-                ''' Intensity computes the spot's magnitude based on area, contrast, & a factor
-                to account for the line profile being a 1D represenation of a 2D phenomenon.'''
-                intensity = 2.2807*spot_area*contrast #Value may be np.sqrt(5*np.pi/3) instead of 2.2807
-                ''' Viewing accounts for whether or not a spot is visible at each time_stepsstep.
-                In many instances (& inclinations), the spot will be on the non-viewable
-                hemisphere.'''
-                view = viewing(lat,latspot,lonspot,time_samples,self.target.inclination)
-                ''' We use matrix methods to create the Gaussian distribution for the spots
-                for each timestep in RV space.'''
-                rv_temp = np.tile(lonspot*self.target.vsini/90,self.n).reshape(self.n,time_samples).T
-                rv_halfwidth = np.tile(va,self.n).reshape(self.n,len(va)).T
-                rvsub = (self.rv_array-rv_temp)/rv_halfwidth
-                Z = np.exp(-0.5*rvsub*rvsub).T#/(2*np.pi*va)#/np.sqrt(np.pi)
-                ''' We ensure the star spot has been normalized prior to being multipled
-                # by its intensity.'''
-                sumZ = np.sum(Z,axis=0)
-                sumZ = np.where(sumZ<1,1,sumZ)
-                Z = Z/sumZ
-                " The final spot line profile is computed."
-                Zspot[sample_start:sample_start+time_samples,:] = -(Z*intensity*view).T
-                current_rotation += 1
-                sample_start = sample_start+time_samples
-            return(Zspot) 
-
-class Numerical_Model:
-    '''
-    Object class used to generate numerical line profiles, light curves, and star maps.
-    
-        Inputs:
-            length_of_observation: Total time for observations [hrs]
-            time_steps: # of times steps for 1 revolution of target
-            n: # of pixels in line profile
-            eps: Linear limb darkening coefficient
-            target: Target-class object
-        '''
-        
-    def __init__(self,target,length_of_observation,time_steps,n,eps,spectral_resolution):
-        self.length_of_observation = np.copy(length_of_observation)
-        self.n = n
-        self.eps = eps
-        self.spectral_resolution = spectral_resolution
-        self.target = target
-        self.time_steps = time_steps
-        self.rv_array = np.linspace(-2*self.target.vsini,2*self.target.vsini,n)
-        self.time_hours = np.linspace(0,length_of_observation,time_steps)
-    
-    def run(self,noiseon = False, sigma = 0):
-        ''' Runs numerical code based on input instrument. Instrument is used so that
-        instrument broadening can be taken into account.'''
-        time_steps = self.time_steps
-        ''' L and l are the # of longitudinal and latitudinal cells'''
-        L = 500
-        l = int(L/2)
-        ''' rv_num provides an RV mapping based on target longitude.'''
-        rv_num = np.linspace(-2*self.target.vsini,2*self.target.vsini,L)
-        ''' We create a grid map for the entire surface map.'''
-        latcell = np.linspace(90,-90,l)*np.ones((L,1))
-        latcell = latcell.T
-        loncell = np.linspace(-180,180,L)*np.ones((l,1))
-        ''' mu computes the distance of each cell from the sub-observer point.'''
-        # mu2 = 1-(latcell**2+loncell**2)/90**2
-        # mu2_bad_index = np.where(mu2<0)
-        # mu2[mu2_bad_index] = 0
-        mu = np.sqrt(1-(latcell**2+loncell**2)/90**2)
-        ''' starflux defines the area viewable by the oberverer.'''
-        starflux = 1-self.eps*(1-mu)
-        notnumbers = np.isnan(mu)
-        ''' Non-viewable regions of the target are set to zero.'''
-        starflux[notnumbers] = 0
-        ''' starflux is summed to create a reference for normalization'''
-        starfluxsum = sum(sum(starflux))
-        ''' Flux is summed along the longitudinal axis to create an initial line profile'''
-        starLP = np.sum(starflux,axis=0)/starfluxsum
-        ''' The spatial line profile is interpolated onto the line profile desired 
-        (based on value of n)'''
-        starLP_interp_temp = np.interp(self.rv_array,rv_num,starLP)
-        ''' The line profile is then convolved with an instrument profile.'''
-        starLPi = add_instrument_broadening(starLP_interp_temp,self.spectral_resolution,self.rv_array,self.time_steps,self.n)       
-        self.line_profile_unspotted = starLPi
-        ''' The ratio between the maximum of these two lines profiles is the key to properly
-        adjusting the magnitude of the Gaussian spots.'''
-        self.ratio = max(starLPi)/max(starLP)
-        degrees_of_observation = (self.length_of_observation/self.target.period)*360
-        if degrees_of_observation <= 360:
-            '''' Properly formats period and time'''
-            if isinstance(time_steps,list):
-                period = time_steps[-1]
-                time_array = time_steps
-                time_steps = len(time_steps)
-            else:
-                time_array = 0
-            '''' Phase array accounts for the phases being considered through 1 rotation'''
-            phase_array = np.zeros((len(self.target.lat),time_steps))
-            ''' latspot and lonspot track the lat/lon for each spot after Euler-Rodrigues
-            transformation.'''
-            latspot = np.zeros((len(self.target.lat),time_steps))
-            lonspot = np.zeros((len(self.target.lat),time_steps))
-            ''' frontside tracks whether or not a spot is viewable at each epoch'''
-            frontside = np.zeros((len(self.target.lat),time_steps))
-            ''''In the loop below, the transformed lat/lon are computed using
-            the Euler-Rodrigues formula, whether or not the spot is in the viewable
-            hemisphere is also tracked with frontside() function
-            '''
-            for i in range(len(self.target.lat)):
-                if isinstance(time_array,list):
-                    phase_array[i] = self.target.lon[i]+np.multiply(time_array,1/period)*360 #Period of 5.05 hrs (Karalidi et al., 2016) 
-                else:
-                    phase_array[i] = np.linspace(self.target.lon[i],self.target.lon[i]+360,time_steps)
-                latspot[i],lonspot[i] = rotation_inclination(self.target.lat[i],phase_array[i],self.target.inclination)
-                frontside[i] = viewing(self.target.lat[i],latspot[i],lonspot[i],time_steps,self.target.inclination)
-            ''' LPtime_steps is the array storing the numerical line profile for each epoch.'''
-            LPtime = np.zeros((time_steps,self.n))
-            'Numerical flux stores photometric flux for light curves'
-            numerical_flux = np.zeros(time_steps)
-            'Save Flux Map for Each Time Step'
-            FluxSave = np.zeros((l,L),np.float_)
-            for i in range(time_steps):
-                spot = np.zeros((l,L))
-                for k in range(len(self.target.lat)):
-                    ''' Compute 2D Spot Gaussian for each cell'''
-                    sigx = self.target.radius[k]*np.abs(np.cos(np.radians(lonspot[k,i])))
-                    sigy = self.target.radius[k]*np.abs(np.cos(np.radians(latspot[k,i])))
-                    subx2 = ((loncell-lonspot[k,i])/sigx)**2
-                    suby2 = ((latcell-latspot[k,i])/sigy)**2
-                    intensity = np.exp(-(subx2+suby2)/2)
-                    spot = spot-intensity*self.target.contrast[k]*frontside[k,i]
-                ''' Normalize the spotmap and sum to create inital line profile (lon space)'''
-                spotmap = spot/starfluxsum
-                spotLP = np.sum(spotmap,axis=0)
-                ''' Interpolate line profile into RV space & account for flux ratio'''
-                spotLP_interp = self.ratio*np.interp(self.rv_array,rv_num,spotLP)
-                ''' Add spot line profile to stellar line profile and record'''
-                tempLP = starLPi+spotLP_interp
-                'Save Star Map, Line Profile, and Photometric Flux for each time step'
-                spot[notnumbers] = 0
-                starmap = (starflux+spot)/starfluxsum
-                FluxSave = np.dstack((FluxSave,starmap))
-                LPtime[i] = tempLP
-                numerical_flux[i] = sum(tempLP)
-            if noiseon == True:
-                numerical_flux = numerical_flux+max(numerical_flux)*np.random.normal(0,sigma,time_steps)
-            self.StarMap = FluxSave[:,125:375,1:]
-            self.line_profile = LPtime
-            self.light_curve = numerical_flux
-        else:
-            if degrees_of_observation%360 == 0:
-                number_of_rotations = int(degrees_of_observation/360)
-            else:
-                number_of_rotations = int(degrees_of_observation/360)+1
-            current_rotation = 0
-            sample_start = 0
-            FluxSave = np.zeros((l,L),np.float_)
-            LPtime = np.zeros((self.time_steps,self.n))
-            numerical_flux = np.zeros(self.time_steps)
-            radius = list(np.copy(self.target.radius))
-            contrast = list(np.copy(self.target.contrast))
-            longitude = list(np.copy(self.target.lon))
-            for m in range(number_of_rotations):
-                if current_rotation+1 < number_of_rotations:
-                    observational_phase = 360
-                    time_samples = int(self.time_steps*360/degrees_of_observation)
-                else:
-                    observational_phase = np.mod(degrees_of_observation,360*(number_of_rotations-1))
-                    check_if_zero = np.mod(self.time_steps,time_samples)
-                    if check_if_zero ==0:
-                        time_samples = time_samples
-                    else:
-                        time_samples = check_if_zero
-                    # time_samples = np.mod(self.time_steps,(int(self.time_steps*360/degrees_of_observation)+1)*(number_of_rotations-1))
-                # if isinstance(self.time_steps,list):
-                #     period = self.time_steps[-1]
-                #     time_array = self.time_steps
-                #     time_steps = len(self.time_steps)
-                # else:
-                #     time_steps = self.time_steps
-                #     time_array = 0
-                # phase_array = np.zeros((len(self.target.lat),time_samples))
-                latspot = np.zeros((len(self.target.lat),time_samples))
-                lonspot = np.zeros((len(self.target.lat),time_samples))
-                frontside = np.zeros((len(self.target.lat),time_samples))
-                for i in range(len(self.target.lat)):
-                    # if isinstance(time_array,list):
-                    #     phase_array[i] = self.lon[i]+np.multiply(time_array,1/period)*360 #Period of 5.05 hrs (Karalidi et al., 2016) 
-                    # else:
-                    if isinstance(longitude[i],np.ndarray) == True:
-                        dlongitude = longitude[i][-1]-longitude[i][-2]
-                        longitude[i] = longitude[i][-1]+dlongitude
-                    if isinstance(radius[i],np.ndarray) == True:
-                        dradius = 0 # radius[i][-1]-radius[i][-2]
-                        radius[i] = radius[i][-1]+dradius
-                    if isinstance(contrast[i],np.ndarray) == True:
-                        dcontrast = 0 #contrast[i][-1]-contrast[i][-2]
-                        contrast[i] = contrast[i][-1]+dcontrast
-                    longitude[i] = np.linspace(longitude[i],longitude[i]+observational_phase,time_samples)
-                    latspot[i],lonspot[i] = rotation_inclination(self.target.lat[i],longitude[i],self.target.inclination)
-                    frontside[i] = viewing(self.target.lat[i],latspot[i],lonspot[i],time_samples,self.target.inclination)
-
-                if self.target.spot_evolution_boolean == True:
-                    index = np.where(np.array(self.target.spot_evolution_rotation)==current_rotation+1)[0]
-                    for i in range(len(index)):
-                        radius[i] = np.linspace(radius[i],self.target.spot_evolution_radius[index[i]],time_samples)
-                        contrast[i] = np.linspace(contrast[i],self.target.spot_evolution_contrast[index[i]],time_samples)
-
-                for i in range(time_samples):
-                    spot = np.zeros((l,L))
-                    for k in range(len(self.target.lat)):
-                        # else:
-                        #     radius = self.target.radius[k]
-                        #     contrast = self.target.contrast[k]
-                        if isinstance(radius[k],np.ndarray) == True:
-                            sigx = radius[k][i]*(np.abs(np.cos(np.radians(lonspot[k,i]))))
-                            sigy = radius[k][i]*np.abs(np.cos(np.radians(latspot[k,i])))
-                            subx2 = ((loncell-lonspot[k,i])/sigx)**2
-                            suby2 = ((latcell-latspot[k,i])/sigy)**2
-                            intensity = np.exp(-(subx2+suby2)/2)
-                            spot = spot-intensity*contrast[k][i]*frontside[k,i]
-                        else:
-                            sigx = radius[k]*(np.abs(np.cos(np.radians(lonspot[k,i]))))
-                            sigy = radius[k]*np.abs(np.cos(np.radians(latspot[k,i])))
-                            subx2 = ((loncell-lonspot[k,i])/sigx)**2
-                            suby2 = ((latcell-latspot[k,i])/sigy)**2
-                            intensity = np.exp(-(subx2+suby2)/2)
-                            spot = spot-intensity*contrast[k]*frontside[k,i]
-                    ''' Normalize the spotmap and sum to create inital line profile (lon space)'''
-                    spotmap = spot/starfluxsum
-                    spotLP = np.sum(spotmap,axis=0)
-                    ''' Interpolate line profile into RV space & account for flux ratio'''
-                    spotLP_interp = self.ratio*np.interp(self.rv_array,rv_num,spotLP)
-                    ''' Add spot line profile to stellar line profile and record'''
-                    tempLP = starLPi+spotLP_interp
-                    'Save Star Map, Line Profile, and Photometric Flux for each time step'
-                    spot[notnumbers] = 0
-                    starmap = (starflux+spot)/starfluxsum
-                    FluxSave = np.dstack((FluxSave,starmap))
-                    numerical_flux[i+sample_start] = sum(tempLP)
-                    LPtime[i+sample_start] = tempLP
-                current_rotation += 1
-                sample_start = sample_start+time_samples
-            if noiseon == True:
-                numerical_flux = numerical_flux+max(numerical_flux)*np.random.normal(0,sigma,time_steps)
-            self.StarMap = FluxSave[:,125:375,1:]
-            self.line_profile = LPtime
-            self.light_curve = numerical_flux
-    
-    
-    def numerical_broadening_kernel(self): # Generate Gray Numerical Line Profiles/Light Curves/Maps
-        ''' Function creates a line profile wihout noise and provides the numerical
-        computation to also create light curves and surface maps.
-        
-        Check to see if spots have been defined'''
-        if self.target.lat: 
-            spots = self.target.lat,self.target.lon,self.target.radius,self.target.contrast
-        else:
-            spots = [],[],[],[]
-        # inputs = self.vsini,self.inclination,self.time_steps,self.eps,self.n
-        " Run numerical code."
-        self.run()
-        # self.line_profile,self.FluxNumerical,self.FluxMap = NumericalCore(inputs,spots,noiseon=False,sigma=0)
-    
-    def create_map(self,time_stamp):
-        "Runs numerical code and generates surface map at input time interval."
-        if self.target.lat: #Check to see if spots have been defined
-            spots = self.target.lat,self.target.lon,self.target.radius,self.target.contrast
-        else:
-            spots = [],[],[],[]
-        # inputs = self.vsini,self.inclination,self.time_steps,self.eps,self.n
-        self.run()
-        # line_profile,light_curve,FluxMap = NumericalCore(inputs,spots,noiseon=False,sigma=0)
-        scheme = "gist_heat" 
-        fig, ax = plt.subplots()
-        extent = [-90,90,-90,90]
-        plt.imshow(self.StarMap[:,:,time_stamp],cmap=scheme,extent = extent)
-        
-    def create_video(self):
-        "Runs numerical code and generates video of 1 full rotation."
-        self.run()
-        # line_profile,light_curve,FluxMap = NumericalCore(inputs,spots,noiseon=False,sigma=0)
-        scheme = "gist_heat" 
-        fig, ax = plt.subplots()
-        extent = [-90,90,-90,90]
-        for i in range(self.time_steps):
-            plt.imshow(self.StarMap[:,:,i],cmap=scheme,extent = extent)
-            plt.xlabel('Longitude (deg)')
-            plt.ylabel('Latitude (deg)')
-            plt.pause(0.005)
-            plt.clf()
-        plt.imshow(self.StarMap[:,:,-1],cmap=scheme,extent = extent)
-
         
 class Simulated_Observation:
     '''
@@ -1465,6 +994,480 @@ class NestedSampling():
         cfig, caxes = dyplot.cornerplot(self.results,labels = labels,show_titles=True,quantiles = quantiles,title_quantiles = (0.16,0.5,0.84))
         # else:
         #     cfig, caxes = dyplot.cornerplot(self.results,labels = labels,truths = self.truths,show_titles=True,quantiles = quantiles,title_quantiles = (0.16,0.5,0.84))
+
+class Analytical_Model:
+    '''
+    Object class used to generate analytical line profiles and light curves.
+    
+        Inputs:
+            length_of_observation: Total time for observations [hrs]
+            time_steps: # of times steps for 1 revolution of target
+            n: # of pixels in line profile
+            eps: Linear limb darkening coefficient
+            target: Target-class object
+    '''
+    
+    def __init__(self,target,length_of_observation,time_steps,n,eps,spectral_resolution,time_stamps = 0):
+        self.length_of_observation = length_of_observation
+        self.n = n
+        self.eps = eps
+        self.spectral_resolution = spectral_resolution
+        self.target = target
+        self.rv_array = np.linspace(-2*self.target.vsini,2*self.target.vsini,n)
+        'Assign Target Data to Model'
+        " Zrb is the rotational broadening kernel used for analtical model."
+        Zrb = rotationalbroadening(self.rv_array, self.target.vsini, self.target.vstar, self.eps)
+        self.Zrb = Zrb/sum(Zrb) #Normalize the rotational broadening kernel
+        self.time_steps = time_steps
+        self.time_hours = np.linspace(0,length_of_observation,time_steps)
+        
+    def rotational_broadening_kernel(self):
+        ''' The rotational broadening kernel has either bright or dark Gaussian spots
+        either added or subtracted (respectively).'''
+        LPrb = np.copy(self.Zrb)
+        for i in range(len(self.target.lat)):
+            LPrb = LPrb + self.spots_generator(self.target.lat[i],self.target.lon[i],self.target.radius[i],self.target.contrast[i],i)
+        self.LPrb = LPrb
+        
+    def instrument_broadening_kernel(self):
+        " This function creates an instrument profile alone."
+        c = 2.9979E5 #[km/s]
+        sig = c/self.spectral_resolution/2
+        " The instrument profile is a Gaussian distribution with std dev = c/R."
+        LPinstrument = np.exp(-0.5 * np.power(self.rv_array/sig, 2.)) / (np.sqrt(2*np.pi)*sig)
+        " Normalize the instrument profile."
+        LPinstrument = LPinstrument/sum(LPinstrument)
+        self.LPinstrument = LPinstrument
+    
+    def rotational_plus_instrument_kernel(self):
+        ''' Here we convolve an instrument profile with the rotational broadening
+        kernel to create our analytical line profile which can then be modified
+        by either bright (additive) or dark (subtractive) Gaussian spots.'''
+        LPrb = np.copy(self.Zrb)
+        " The std dev is c/R"
+        sig = c/self.spectral_resolution/2
+        " Here we can create an instrument broadening kernel using a Gaussian distribution."
+        LPinstrument = np.exp(-0.5 * np.power(self.rv_array/sig, 2.)) / (np.sqrt(2*np.pi)*sig)
+        LPinstrument = LPinstrument/sum(LPinstrument) 
+        ''' The instrument and rotational broadening kernels are convolved. This new line
+        profile is used for generating the line profiles with Gaussian spots.'''
+        Za = np.convolve(LPrb,LPinstrument,'same')
+        self.LPrb_plus_instrument = Za/sum(Za) # Analytical line profile is normalized 
+    
+        
+    def create_line_profile(self):
+        ''' This function creates a convolved instrument & rotationally broadened
+        line profile and then adds Gaussian spots via spots_generator.
+        
+        The instrument input here needs to be an Instrument class.'''
+        
+        c = 2.9979E5 #[km/s]
+        " Import rotationally broadened kernel."
+        LPrb = np.copy(self.Zrb)
+        " Create Gaussian instrument line profile with std dev = c/R"
+        sig = c/self.spectral_resolution/2
+        LPinstrument = np.exp(-0.5 * np.power(self.rv_array/sig, 2.)) / (np.sqrt(2*np.pi)*sig)
+        LPinstrument = LPinstrument/sum(LPinstrument)
+        self.LPinstrument = LPinstrument
+        " Convolve rotationally broadened & instrument kernel and normalize."
+        Za = np.convolve(LPrb,LPinstrument,'same')
+        Z = Za/sum(Za)
+        " Add Gaussian Spots"
+        for i in range(len(self.target.lat)):
+            Z = Z + self.spots_generator(self.target.lat[i],self.target.lon[i],self.target.radius[i],self.target.contrast[i],i)
+        self.line_profile = Z
+        
+    def create_lightcurve(self):
+        self.create_line_profile()
+        self.light_curve = np.sum(self.line_profile,axis = 1)
+    
+    def spots_generator(self,lat,lon,radius,contrast,spot_number):
+        ''' This function accepts a single spot (with lat,lon,radius,contrast) and
+        creates a line profile (in RV space) which can be added (bright spot)
+        or subtracted (dark spot) to create the full analytical model.'''
+        
+        degrees_of_observation = (self.length_of_observation/self.target.period)*360
+        if degrees_of_observation <= 360:
+            lon_array = np.linspace(lon,lon+degrees_of_observation,self.time_steps)
+            ''' rotation_inclination uses the Euler-Rodrigues formula to perform a coordinate
+            transformation which takes into account a target's inclination vs. the observer.'''
+            latspot,lonspot = rotation_inclination(lat,lon_array,self.target.inclination)
+            " a & b are the longitudinal and latitudinal (respectively) spot radii corrected"
+            " for the Lambertian cosine law (the grow smaller as they approach the target's"
+            " limbs.)"
+            a = radius*np.ones(self.time_steps)*np.abs(np.cos(np.radians(lonspot)))
+            b = radius*np.ones(self.time_steps)*np.abs(np.cos(np.radians(latspot)))
+            " Convert from degree to RV space."
+            va,vb = a*self.target.vsini/90,b*self.target.vsini/90
+            # va = self.vsini*np.sin(np.radians(radius))*np.cos(np.radians(lonspot))
+            " Spot area as an ellipse on the stellar disk"
+            spot_area = (a*b)/(90**2)
+            ''' Intensity computes the spot's magnitude based on area, contrast, & a factor
+            to account for the line profile being a 1D represenation of a 2D phenomenon.'''
+            intensity = 2.2807*spot_area*contrast #Value may be np.sqrt(5*np.pi/3) instead of 2.2807
+            ''' Viewing accounts for whether or not a spot is visible at each time_stepsstep.
+            In many instances (& inclinations), the spot will be on the non-viewable
+            hemisphere.'''
+            view = viewing(lat,latspot,lonspot,self.time_steps,self.target.inclination)
+            ''' We use matrix methods to create the Gaussian distribution for the spots
+            for each timestep in RV space.'''
+            rv_temp = np.tile(lonspot*self.target.vsini/90,self.n).reshape(self.n,self.time_steps).T
+            # rv_temp = np.tile(self.vsini*np.sin(np.radians(lonspot)),self.n).reshape(self.n,self.time_steps).T
+            rv_halfwidth = np.tile(va,self.n).reshape(self.n,self.time_steps).T
+            rvsub = (self.rv_array-rv_temp)/rv_halfwidth
+            Z = np.exp(-0.5*rvsub*rvsub).T#/(2*np.pi*va)#/np.sqrt(np.pi)
+            ''' We ensure the star spot has been normalized prior to being multipled
+            by its intensity.'''
+            sumZ = np.sum(Z,axis=0)
+            sumZ = np.where(sumZ<1,1,sumZ)
+            Z = Z/sumZ
+            " The final spot line profile is computed."
+            Zspot = -(Z*intensity*view).T
+            return(Zspot) 
+        else:
+            time_samples = int(self.time_steps*360/degrees_of_observation)
+            if self.target.prior_rotation == True:
+                Zspot = np.zeros((self.time_steps+time_samples,self.n))
+                ' 1 additional rotation to round up and another to account for prior rotation'
+                number_of_rotations = int(degrees_of_observation/360)+2
+            else:
+                Zspot = np.zeros((self.time_steps,self.n))
+                if degrees_of_observation%360 == 0:
+                    number_of_rotations = int(degrees_of_observation/360)
+                else:
+                    number_of_rotations = int(degrees_of_observation/360)+1
+            current_rotation = 0
+            sample_start = 0
+            longitude = lon
+            for i in range(number_of_rotations):
+                if current_rotation+1 < number_of_rotations:
+                    observational_phase = 360
+                else:
+                    observational_phase = np.mod(degrees_of_observation,360*(number_of_rotations-1))
+                    if observational_phase != 360.0:
+                        if observational_phase != 0.0:
+                            time_samples = np.mod(self.time_steps,time_samples)
+                    if observational_phase == 0.0:
+                        observational_phase = 360.0
+                        
+                if isinstance(longitude,np.ndarray) == True:
+                    dlongitude = longitude[-1]-longitude[-2]
+                    longitude = longitude[-1]+dlongitude
+                if isinstance(radius,np.ndarray) == True:
+                    radius = radius[-1]
+                if isinstance(contrast,np.ndarray) == True:
+                    contrast = contrast[-1]
+
+                if self.target.spot_evolution_boolean == True:
+                    index = np.where((np.array(self.target.spot_evolution_rotation)==current_rotation+1) & \
+                                     (np.array(self.target.spot_evolution_number) == spot_number))[0]
+                    for i in range(len(index)):
+                        radius = np.linspace(radius,self.target.spot_evolution_radius[index[i]],time_samples)
+                        contrast = np.linspace(contrast,self.target.spot_evolution_contrast[index[i]],time_samples)
+
+                longitude = np.linspace(longitude,longitude+observational_phase,time_samples)
+                ''' rotation_inclination uses the Euler-Rodrigues formula to perform a coordinate
+                transformation which takes into account a target's inclination vs. the observer.'''
+                latspot,lonspot = rotation_inclination(lat,longitude,self.target.inclination)
+                " a & b are the longitudinal and latitudinal (respectively) spot radii corrected"
+                " for the Lambertian cosine law (the grow smaller as they approach the target's"
+                " limbs.)"
+                a = radius*np.abs(np.cos(np.radians(lonspot)))
+                b = radius*np.abs(np.cos(np.radians(latspot)))
+                " Convert from degree to RV space."
+                va,vb = a*self.target.vsini/90,b*self.target.vsini/90
+                " Spot area as an ellipse on the stellar disk"
+                spot_area = (a*b)/(90**2)
+                ''' Intensity computes the spot's magnitude based on area, contrast, & a factor
+                to account for the line profile being a 1D represenation of a 2D phenomenon.'''
+                intensity = 2.2807*spot_area*contrast #Value may be np.sqrt(5*np.pi/3) instead of 2.2807
+                ''' Viewing accounts for whether or not a spot is visible at each time_stepsstep.
+                In many instances (& inclinations), the spot will be on the non-viewable
+                hemisphere.'''
+                view = viewing(lat,latspot,lonspot,time_samples,self.target.inclination)
+                ''' We use matrix methods to create the Gaussian distribution for the spots
+                for each timestep in RV space.'''
+                rv_temp = np.tile(lonspot*self.target.vsini/90,self.n).reshape(self.n,time_samples).T
+                rv_halfwidth = np.tile(va,self.n).reshape(self.n,len(va)).T
+                rvsub = (self.rv_array-rv_temp)/rv_halfwidth
+                Z = np.exp(-0.5*rvsub*rvsub).T#/(2*np.pi*va)#/np.sqrt(np.pi)
+                ''' We ensure the star spot has been normalized prior to being multipled
+                # by its intensity.'''
+                sumZ = np.sum(Z,axis=0)
+                sumZ = np.where(sumZ<1,1,sumZ)
+                Z = Z/sumZ
+                " The final spot line profile is computed."
+                Zspot[sample_start:sample_start+time_samples,:] = -(Z*intensity*view).T
+                current_rotation += 1
+                sample_start = sample_start+time_samples
+            return(Zspot) 
+
+class Numerical_Model:
+    '''
+    Object class used to generate numerical line profiles, light curves, and star maps.
+    
+        Inputs:
+            length_of_observation: Total time for observations [hrs]
+            time_steps: # of times steps for 1 revolution of target
+            n: # of pixels in line profile
+            eps: Linear limb darkening coefficient
+            target: Target-class object
+        '''
+        
+    def __init__(self,target,length_of_observation,time_steps,n,eps,spectral_resolution):
+        self.length_of_observation = np.copy(length_of_observation)
+        self.n = n
+        self.eps = eps
+        self.spectral_resolution = spectral_resolution
+        self.target = target
+        self.time_steps = time_steps
+        self.rv_array = np.linspace(-2*self.target.vsini,2*self.target.vsini,n)
+        self.time_hours = np.linspace(0,length_of_observation,time_steps)
+    
+    def run(self,noiseon = False, sigma = 0):
+        ''' Runs numerical code based on input instrument. Instrument is used so that
+        instrument broadening can be taken into account.'''
+        time_steps = self.time_steps
+        ''' L and l are the # of longitudinal and latitudinal cells'''
+        L = 500
+        l = int(L/2)
+        ''' rv_num provides an RV mapping based on target longitude.'''
+        rv_num = np.linspace(-2*self.target.vsini,2*self.target.vsini,L)
+        ''' We create a grid map for the entire surface map.'''
+        latcell = np.linspace(90,-90,l)*np.ones((L,1))
+        latcell = latcell.T
+        loncell = np.linspace(-180,180,L)*np.ones((l,1))
+        ''' mu computes the distance of each cell from the sub-observer point.'''
+        # mu2 = 1-(latcell**2+loncell**2)/90**2
+        # mu2_bad_index = np.where(mu2<0)
+        # mu2[mu2_bad_index] = 0
+        mu = np.sqrt(1-(latcell**2+loncell**2)/90**2)
+        ''' starflux defines the area viewable by the oberverer.'''
+        starflux = 1-self.eps*(1-mu)
+        notnumbers = np.isnan(mu)
+        ''' Non-viewable regions of the target are set to zero.'''
+        starflux[notnumbers] = 0
+        ''' starflux is summed to create a reference for normalization'''
+        starfluxsum = sum(sum(starflux))
+        ''' Flux is summed along the longitudinal axis to create an initial line profile'''
+        starLP = np.sum(starflux,axis=0)/starfluxsum
+        ''' The spatial line profile is interpolated onto the line profile desired 
+        (based on value of n)'''
+        starLP_interp_temp = np.interp(self.rv_array,rv_num,starLP)
+        ''' The line profile is then convolved with an instrument profile.'''
+        starLPi = add_instrument_broadening(starLP_interp_temp,self.spectral_resolution,self.rv_array,self.time_steps,self.n)       
+        self.line_profile_unspotted = starLPi
+        ''' The ratio between the maximum of these two lines profiles is the key to properly
+        adjusting the magnitude of the Gaussian spots.'''
+        self.ratio = max(starLPi)/max(starLP)
+        degrees_of_observation = (self.length_of_observation/self.target.period)*360
+        if degrees_of_observation <= 360:
+            '''' Properly formats period and time'''
+            if isinstance(time_steps,list):
+                period = time_steps[-1]
+                time_array = time_steps
+                time_steps = len(time_steps)
+            else:
+                time_array = 0
+            '''' Phase array accounts for the phases being considered through 1 rotation'''
+            phase_array = np.zeros((len(self.target.lat),time_steps))
+            ''' latspot and lonspot track the lat/lon for each spot after Euler-Rodrigues
+            transformation.'''
+            latspot = np.zeros((len(self.target.lat),time_steps))
+            lonspot = np.zeros((len(self.target.lat),time_steps))
+            ''' frontside tracks whether or not a spot is viewable at each epoch'''
+            frontside = np.zeros((len(self.target.lat),time_steps))
+            ''''In the loop below, the transformed lat/lon are computed using
+            the Euler-Rodrigues formula, whether or not the spot is in the viewable
+            hemisphere is also tracked with frontside() function
+            '''
+            for i in range(len(self.target.lat)):
+                if isinstance(time_array,list):
+                    phase_array[i] = self.target.lon[i]+np.multiply(time_array,1/period)*360 #Period of 5.05 hrs (Karalidi et al., 2016) 
+                else:
+                    phase_array[i] = np.linspace(self.target.lon[i],self.target.lon[i]+360,time_steps)
+                latspot[i],lonspot[i] = rotation_inclination(self.target.lat[i],phase_array[i],self.target.inclination)
+                frontside[i] = viewing(self.target.lat[i],latspot[i],lonspot[i],time_steps,self.target.inclination)
+            ''' LPtime_steps is the array storing the numerical line profile for each epoch.'''
+            LPtime = np.zeros((time_steps,self.n))
+            'Numerical flux stores photometric flux for light curves'
+            numerical_flux = np.zeros(time_steps)
+            'Save Flux Map for Each Time Step'
+            FluxSave = np.zeros((l,L),np.float_)
+            for i in range(time_steps):
+                spot = np.zeros((l,L))
+                for k in range(len(self.target.lat)):
+                    ''' Compute 2D Spot Gaussian for each cell'''
+                    sigx = self.target.radius[k]*np.abs(np.cos(np.radians(lonspot[k,i])))
+                    sigy = self.target.radius[k]*np.abs(np.cos(np.radians(latspot[k,i])))
+                    subx2 = ((loncell-lonspot[k,i])/sigx)**2
+                    suby2 = ((latcell-latspot[k,i])/sigy)**2
+                    intensity = np.exp(-(subx2+suby2)/2)
+                    spot = spot-intensity*self.target.contrast[k]*frontside[k,i]
+                ''' Normalize the spotmap and sum to create inital line profile (lon space)'''
+                spotmap = spot/starfluxsum
+                spotLP = np.sum(spotmap,axis=0)
+                ''' Interpolate line profile into RV space & account for flux ratio'''
+                spotLP_interp = self.ratio*np.interp(self.rv_array,rv_num,spotLP)
+                ''' Add spot line profile to stellar line profile and record'''
+                tempLP = starLPi+spotLP_interp
+                'Save Star Map, Line Profile, and Photometric Flux for each time step'
+                spot[notnumbers] = 0
+                starmap = (starflux+spot)/starfluxsum
+                FluxSave = np.dstack((FluxSave,starmap))
+                LPtime[i] = tempLP
+                numerical_flux[i] = sum(tempLP)
+            if noiseon == True:
+                numerical_flux = numerical_flux+max(numerical_flux)*np.random.normal(0,sigma,time_steps)
+            self.StarMap = FluxSave[:,125:375,1:]
+            self.line_profile = LPtime
+            self.light_curve = numerical_flux
+        else:
+            if degrees_of_observation%360 == 0:
+                number_of_rotations = int(degrees_of_observation/360)
+            else:
+                number_of_rotations = int(degrees_of_observation/360)+1
+            current_rotation = 0
+            sample_start = 0
+            FluxSave = np.zeros((l,L),np.float_)
+            LPtime = np.zeros((self.time_steps,self.n))
+            numerical_flux = np.zeros(self.time_steps)
+            radius = list(np.copy(self.target.radius))
+            contrast = list(np.copy(self.target.contrast))
+            longitude = list(np.copy(self.target.lon))
+            for m in range(number_of_rotations):
+                if current_rotation+1 < number_of_rotations:
+                    observational_phase = 360
+                    time_samples = int(self.time_steps*360/degrees_of_observation)
+                else:
+                    observational_phase = np.mod(degrees_of_observation,360*(number_of_rotations-1))
+                    check_if_zero = np.mod(self.time_steps,time_samples)
+                    if check_if_zero ==0:
+                        time_samples = time_samples
+                    else:
+                        time_samples = check_if_zero
+                    # time_samples = np.mod(self.time_steps,(int(self.time_steps*360/degrees_of_observation)+1)*(number_of_rotations-1))
+                # if isinstance(self.time_steps,list):
+                #     period = self.time_steps[-1]
+                #     time_array = self.time_steps
+                #     time_steps = len(self.time_steps)
+                # else:
+                #     time_steps = self.time_steps
+                #     time_array = 0
+                # phase_array = np.zeros((len(self.target.lat),time_samples))
+                latspot = np.zeros((len(self.target.lat),time_samples))
+                lonspot = np.zeros((len(self.target.lat),time_samples))
+                frontside = np.zeros((len(self.target.lat),time_samples))
+                for i in range(len(self.target.lat)):
+                    # if isinstance(time_array,list):
+                    #     phase_array[i] = self.lon[i]+np.multiply(time_array,1/period)*360 #Period of 5.05 hrs (Karalidi et al., 2016) 
+                    # else:
+                    if isinstance(longitude[i],np.ndarray) == True:
+                        dlongitude = longitude[i][-1]-longitude[i][-2]
+                        longitude[i] = longitude[i][-1]+dlongitude
+                    if isinstance(radius[i],np.ndarray) == True:
+                        dradius = 0 # radius[i][-1]-radius[i][-2]
+                        radius[i] = radius[i][-1]+dradius
+                    if isinstance(contrast[i],np.ndarray) == True:
+                        dcontrast = 0 #contrast[i][-1]-contrast[i][-2]
+                        contrast[i] = contrast[i][-1]+dcontrast
+                    longitude[i] = np.linspace(longitude[i],longitude[i]+observational_phase,time_samples)
+                    latspot[i],lonspot[i] = rotation_inclination(self.target.lat[i],longitude[i],self.target.inclination)
+                    frontside[i] = viewing(self.target.lat[i],latspot[i],lonspot[i],time_samples,self.target.inclination)
+
+                if self.target.spot_evolution_boolean == True:
+                    index = np.where(np.array(self.target.spot_evolution_rotation)==current_rotation+1)[0]
+                    for i in range(len(index)):
+                        radius[i] = np.linspace(radius[i],self.target.spot_evolution_radius[index[i]],time_samples)
+                        contrast[i] = np.linspace(contrast[i],self.target.spot_evolution_contrast[index[i]],time_samples)
+
+                for i in range(time_samples):
+                    spot = np.zeros((l,L))
+                    for k in range(len(self.target.lat)):
+                        # else:
+                        #     radius = self.target.radius[k]
+                        #     contrast = self.target.contrast[k]
+                        if isinstance(radius[k],np.ndarray) == True:
+                            sigx = radius[k][i]*(np.abs(np.cos(np.radians(lonspot[k,i]))))
+                            sigy = radius[k][i]*np.abs(np.cos(np.radians(latspot[k,i])))
+                            subx2 = ((loncell-lonspot[k,i])/sigx)**2
+                            suby2 = ((latcell-latspot[k,i])/sigy)**2
+                            intensity = np.exp(-(subx2+suby2)/2)
+                            spot = spot-intensity*contrast[k][i]*frontside[k,i]
+                        else:
+                            sigx = radius[k]*(np.abs(np.cos(np.radians(lonspot[k,i]))))
+                            sigy = radius[k]*np.abs(np.cos(np.radians(latspot[k,i])))
+                            subx2 = ((loncell-lonspot[k,i])/sigx)**2
+                            suby2 = ((latcell-latspot[k,i])/sigy)**2
+                            intensity = np.exp(-(subx2+suby2)/2)
+                            spot = spot-intensity*contrast[k]*frontside[k,i]
+                    ''' Normalize the spotmap and sum to create inital line profile (lon space)'''
+                    spotmap = spot/starfluxsum
+                    spotLP = np.sum(spotmap,axis=0)
+                    ''' Interpolate line profile into RV space & account for flux ratio'''
+                    spotLP_interp = self.ratio*np.interp(self.rv_array,rv_num,spotLP)
+                    ''' Add spot line profile to stellar line profile and record'''
+                    tempLP = starLPi+spotLP_interp
+                    'Save Star Map, Line Profile, and Photometric Flux for each time step'
+                    spot[notnumbers] = 0
+                    starmap = (starflux+spot)/starfluxsum
+                    FluxSave = np.dstack((FluxSave,starmap))
+                    numerical_flux[i+sample_start] = sum(tempLP)
+                    LPtime[i+sample_start] = tempLP
+                current_rotation += 1
+                sample_start = sample_start+time_samples
+            if noiseon == True:
+                numerical_flux = numerical_flux+max(numerical_flux)*np.random.normal(0,sigma,time_steps)
+            self.StarMap = FluxSave[:,125:375,1:]
+            self.line_profile = LPtime
+            self.light_curve = numerical_flux
+    
+    
+    def numerical_broadening_kernel(self): # Generate Gray Numerical Line Profiles/Light Curves/Maps
+        ''' Function creates a line profile wihout noise and provides the numerical
+        computation to also create light curves and surface maps.
+        
+        Check to see if spots have been defined'''
+        if self.target.lat: 
+            spots = self.target.lat,self.target.lon,self.target.radius,self.target.contrast
+        else:
+            spots = [],[],[],[]
+        # inputs = self.vsini,self.inclination,self.time_steps,self.eps,self.n
+        " Run numerical code."
+        self.run()
+        # self.line_profile,self.FluxNumerical,self.FluxMap = NumericalCore(inputs,spots,noiseon=False,sigma=0)
+    
+    def create_map(self,time_stamp):
+        "Runs numerical code and generates surface map at input time interval."
+        if self.target.lat: #Check to see if spots have been defined
+            spots = self.target.lat,self.target.lon,self.target.radius,self.target.contrast
+        else:
+            spots = [],[],[],[]
+        # inputs = self.vsini,self.inclination,self.time_steps,self.eps,self.n
+        self.run()
+        # line_profile,light_curve,FluxMap = NumericalCore(inputs,spots,noiseon=False,sigma=0)
+        scheme = "gist_heat" 
+        fig, ax = plt.subplots()
+        extent = [-90,90,-90,90]
+        plt.imshow(self.StarMap[:,:,time_stamp],cmap=scheme,extent = extent)
+        
+    def create_video(self):
+        "Runs numerical code and generates video of 1 full rotation."
+        self.run()
+        # line_profile,light_curve,FluxMap = NumericalCore(inputs,spots,noiseon=False,sigma=0)
+        scheme = "gist_heat" 
+        fig, ax = plt.subplots()
+        extent = [-90,90,-90,90]
+        for i in range(self.time_steps):
+            plt.imshow(self.StarMap[:,:,i],cmap=scheme,extent = extent)
+            plt.xlabel('Longitude (deg)')
+            plt.ylabel('Latitude (deg)')
+            plt.pause(0.005)
+            plt.clf()
+        plt.imshow(self.StarMap[:,:,-1],cmap=scheme,extent = extent)
+
+
+
 
 def add_instrument_broadening(line_profile,spectral_resolution,rv_array,time_steps,n,multiple=False):
     ''' Non-Class Associated Instrument Broadening Function'''
