@@ -107,7 +107,7 @@ BetaPicb_MODHIS.observed_properties(spectra_file,apparent_magnitude,magnitude_ba
 
 
 'HR 8799 e'
-orbit = 'Random' # or 'Aligned'
+orbit = 'Aligned'
 if orbit == 'Aligned':
     inclination = 24.0 # [Deg]
     period = 4.1 # [hrs]
@@ -131,7 +131,7 @@ HR8799e_MODHIS = Imber.Target(vsini,inclination,period)
 HR8799e_MODHIS.observed_properties(spectra_file,apparent_magnitude,magnitude_band,zero,host_magnitude_band = host_magnitude_band,host_magnitude = host_magnitude)
 
 'HR 8799 d'
-orbit = 'Random' #'Random' or 'Aligned'
+orbit = 'Aligned'
 if orbit == 'Aligned':
     inclination = 23.8 # [Deg]
     period = 6.0 # [hrs]

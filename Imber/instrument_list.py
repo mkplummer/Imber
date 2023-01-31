@@ -73,7 +73,7 @@ ELT-METIS
 '''
 'Telescope Parameters'
 aperture_diameter = 39 # Diameter [m]
-collecting_area = 1100 # [m^2]
+collecting_area = 978 # [m^2]
 
 'Sky Emission and Transmission Files'
 sky_file = '/Users/plummer.323/Imber/SkyModels/skytable-ELT-L.fits' #Uses the SkyTable from ESO for Transmission & Sky Background
@@ -81,7 +81,7 @@ file_type = 'FITS'
 
 'Instrument Parameters'
 name = 'METIS'
-spectral_resolution = 3E3
+spectral_resolution = 100E3
 efficiency = 0.25
 Nspec = 1
 lambda_ref = 3.8 # [microns]
@@ -102,7 +102,7 @@ ELT-Imager
 
 'Telescope Parameters'
 aperture_diameter = 39 # [m]
-collecting_area = 1100 # [m^2]
+collecting_area = 978 # [m^2]
 
 'Sky Emission and Transmission Files'
 sky_file = '/Users/plummer.323/Imber/SkyModels/MKO_sky_emiss_NIR_1mm_1.5.csv'

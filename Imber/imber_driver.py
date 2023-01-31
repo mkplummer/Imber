@@ -19,17 +19,17 @@ p = Palette("ibm") # 'ibm' 'brewer' 'material' 'clarity
 import matplotlib.gridspec as gridspec
 
 'Import target & instrument'
-target1 = target_list.VHS1256b_MODHIS
-instrument = instrument_list.MODHIS
+target1 = target_list.VHS1256b_METIS
+instrument = instrument_list.METIS
 
 'Set Spots (Truth)'
-lat,lon,radius,contrast = [30],[30],[30],[0.25]
-# lat,lon,radius,contrast = [30,60],[-60,60],[30,30],[0.25,-0.25]
+# lat,lon,radius,contrast = [30],[30],[30],[0.25]
+lat,lon,radius,contrast = [30,60],[-60,60],[30,30],[0.25,-0.25]
 target1.set_spots(lat,lon,radius,contrast)
 
 'Model Settings'
 length_of_observation = target1.period
-time_steps = 10
+time_steps = 30
 n =  51 # 51 (VHS1256b), 97 (BetaPicb), 57 (HR8799e), 203 (SIMP0136), 7 (TRAPPIST-1), 37 (HR8799d)
 eps = 0.4 #Linear LDC
 spectral_resolution = instrument.spectral_resolution
@@ -39,7 +39,7 @@ model_numerical = Imber.Numerical_Model(target1,length_of_observation,time_steps
 model_numerical.run()
 
 'Spectroscopic Observation (Simulated)'
-texp = int(length_of_observation*3600/time_steps)
+texp = int(length_of_observation*3600/time_steps)-60
 # texp = int(length_of_observation*3600/time_steps)-60 # Exposure time [s], Assumes continuous obervation
 nexp = 1 # Number of exposures
 obs1 = Imber.Simulated_Observation(instrument,model_numerical,texp,nexp,host_star = False)
@@ -134,8 +134,8 @@ if perform_nested_sampling == True:
     truths = [lat,lon,radius,contrast]
     # truths = [lat[0],lon[0],radius[0],contrast[0],lat[1],lon[1],radius[1],contrast[1]]
     time_samples = 500
-    inference = Imber.NestedSampling(target1, time_samples,spectral_observation = obs1,photo_observation = obs2,\
-                 free_contrast = False,free_radius = True,sampling_mode='dynamic',\
+    inference = Imber.NestedSampling(target1, time_samples,spectral_observation = obs1,photo_observation = 0,\
+                 free_contrast = True,free_radius = True,sampling_mode='dynamic',\
                          truths = truths,evolution_spot_number = False,evolution_rotation = False)
     inference.run()
 
