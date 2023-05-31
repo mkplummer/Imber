@@ -5,7 +5,7 @@ Doppler imaging tool created by [Michael K. Plummer](https://www.michaelplummer.
 
 - [Plummer & Wang (2022)](https://ui.adsabs.harvard.edu/abs/2022ApJ...933..163P/abstract) A Unified Spectroscopic and Photometric Model to Infer Surface Inhomogeneity: Application to Luhman 16B, The Astrophysical Journal, Volume 933, Issue 2, id.163, 17 pp., July 2022.
 
-- - [Plummer & Wang (2023)](https://ui.adsabs.harvard.edu/abs/2023arXiv230408518P/abstract) Mapping the Skies of Ultracool Worlds: Detecting Storms and Spots with Extremely Large Telescopes, Accepted for publication in the Astrophysical Journal.
+- [Plummer & Wang (2023)](https://ui.adsabs.harvard.edu/abs/2023arXiv230408518P/abstract) Mapping the Skies of Ultracool Worlds: Detecting Storms and Spots with Extremely Large Telescopes, Accepted for publication in the Astrophysical Journal.
 
 ## Dependencies
 
