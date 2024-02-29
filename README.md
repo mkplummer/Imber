@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/592484822.svg)](https://zenodo.org/doi/10.5281/
+
 # Imber
 Doppler imaging and light curve inverstion tool created by [Michael K. Plummer](https://www.michaelplummer.dev) for modeling stellar/substellar surfaces. The Python module simulates spectroscopic and photometric observations with both a gridded, numerical simulation and analytical model. Imber has been specifically designed to predict Extremely Large Telescope instrument (e.g. ELT/METIS and TMT/MODHIS) Doppler imaging performance. It has also been applied to existing, archival observations of spectroscopy and photometry to model surface features on Luhman 16B, a nearby L/T transition brown dwarf.
 
