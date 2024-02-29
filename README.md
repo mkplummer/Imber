@@ -3,7 +3,7 @@ Doppler imaging and light curve inverstion tool created by [Michael K. Plummer](
 
 Version 1.0 is oriented for Doppler imaging performance testing as demonstrated in Plummer & Wang (2023).
 
-Version 3.0 [![DOI](https://zenodo.org/badge/592484822.svg)](https://zenodo.org/doi/10.5281/zenodo.10729261) is optimized for lightcurve inversion. It adds multi-rotational spot evolution (temperature contrast and size) and also incorporates wave models for photometric variability. A Jupyter notebook tutorial is included with application to SIMP0136.
+Version 3.0 is optimized for lightcurve inversion. It adds multi-rotational spot evolution (temperature contrast and size) and also incorporates wave models for photometric variability. A Jupyter notebook tutorial is included with application to SIMP0136. [![DOI](https://zenodo.org/badge/592484822.svg)](https://zenodo.org/doi/10.5281/zenodo.10729261) 
 
 ## References
 
